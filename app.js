@@ -1370,6 +1370,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderChatMessage(msg) {
         if (!chatMessages) return;
 
+        // Prevent duplicate rendering if message already exists on screen
+        if (msg.id && document.getElementById(`msg-${msg.id}`)) {
+            return;
+        }
+
         // Remove chat-empty state if it exists
         const emptyState = chatMessages.querySelector('.chat-empty');
         if (emptyState) {
@@ -1382,10 +1387,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const wrapper = document.createElement('div');
         wrapper.className = wrapperClass;
+        if (msg.id) {
+            wrapper.id = `msg-${msg.id}`;
+        }
+
+        // Use nickname if available, fallback to email prefix or email
+        const displayName = msg.user_nickname || msg.user_email;
 
         let senderHtml = '';
         if (!isMe) {
-            senderHtml = `<span class="message-sender">${msg.user_email}</span>`;
+            senderHtml = `<span class="message-sender">${escapeHtml(displayName)}</span>`;
         }
 
         wrapper.innerHTML = `
@@ -1463,14 +1474,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     chatInput.value = '';
                     renderChatMessage(data.message);
                     scrollToBottom();
-
-                    if (chatChannel) {
-                        chatChannel.send({
-                            type: 'broadcast',
-                            event: 'message',
-                            payload: data.message
-                        });
-                    }
+                    // Broadcast removed because Supabase Realtime DB Changes listens to database inserts!
                 }
             } else {
                 const err = await response.json();
@@ -1493,17 +1497,27 @@ document.addEventListener('DOMContentLoaded', () => {
             chatChannel.unsubscribe();
         }
 
-        chatChannel = supabaseClient.channel('chat-room');
-        chatChannel
-            .on('broadcast', { event: 'message' }, (response) => {
-                const msg = response.payload;
-                if (msg && msg.user_email !== currentSession.user.email) {
-                    renderChatMessage(msg);
-                    scrollToBottom();
+        // Subscribe to public.messages INSERT events
+        chatChannel = supabaseClient
+            .channel('schema-db-changes')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages'
+                },
+                (payload) => {
+                    console.log('Realtime database insert received!', payload);
+                    const newMsg = payload.new;
+                    if (newMsg && newMsg.user_email !== currentSession.user.email) {
+                        renderChatMessage(newMsg);
+                        scrollToBottom();
+                    }
                 }
-            })
+            )
             .subscribe((status) => {
-                console.log("Chat realtime subscription status:", status);
+                console.log("Chat postgres changes subscription status:", status);
             });
     }
 
@@ -1684,6 +1698,8 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSignup.addEventListener('click', async () => {
             const email = emailInput.value.trim();
             const password = passwordInput.value;
+            const nickname = document.getElementById('login-nickname') ? document.getElementById('login-nickname').value.trim() : '';
+
             if (!email || !password) {
                 showAuthError("이메일과 비밀번호를 모두 입력해 주세요.");
                 return;
@@ -1694,8 +1710,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             authError.classList.add('hidden');
             
-            // 회원가입 시도
-            const { data, error } = await supabaseClient.auth.signUp({ email, password });
+            // 회원가입 시도 (메타데이터에 닉네임 전송)
+            const { data, error } = await supabaseClient.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: {
+                        nickname: nickname || email.split('@')[0]
+                    }
+                }
+            });
             
             if (error) {
                 // 이메일 확인이 비활성화되어 에러로 즉시 중복 가입을 알리는 경우

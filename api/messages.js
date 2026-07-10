@@ -57,11 +57,14 @@ export default async function handler(request, response) {
         return response.status(400).json({ error: "Message content cannot be empty." });
       }
 
+      const nickname = user.user_metadata?.nickname || user.user_metadata?.full_name || user.email.split('@')[0];
+
       const { data: insertedMsg, error } = await supabaseAdmin
         .from('messages')
         .insert({
           user_id: user.id,
           user_email: user.email,
+          user_nickname: nickname,
           content: content.trim()
         })
         .select()
