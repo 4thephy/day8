@@ -259,10 +259,14 @@
                         </div>
                     </div>
                     <div class="chat-input-area">
+                        <!-- 이미지 전송용 숨겨진 파일 인풋 -->
+                        <input type="file" id="chat-image-input" accept="image/*" style="display: none;">
+                        <button id="btn-upload-image" class="chat-action-btn" title="이미지 올리기">
+                            <i data-lucide="paperclip"></i>
+                        </button>
                         <input type="text" id="chat-input" placeholder="따뜻한 응원이나 오늘 하루의 소감을 나누어 보세요..." maxlength="500">
-                        <button id="btn-send-chat" class="btn btn-primary">
+                        <button id="btn-send-chat" class="chat-action-btn" title="전송">
                             <i data-lucide="send"></i>
-                            <span>전송</span>
                         </button>
                     </div>
                 </div>

@@ -1900,17 +1900,58 @@ body {
     box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
 }
 
-#btn-send-chat {
-    padding: 0.75rem 1.5rem;
-    height: 100%;
+.chat-action-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: var(--transition);
+    flex-shrink: 0;
 }
 
-#btn-send-chat i {
-    width: 16px;
-    height: 16px;
+.chat-action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--accent-cyan);
+}
+
+.chat-action-btn i {
+    width: 18px;
+    height: 18px;
+}
+
+#btn-send-chat.chat-action-btn {
+    background: var(--accent-grad);
+    border: none;
+    color: #ffffff;
+}
+
+#btn-send-chat.chat-action-btn:hover {
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+    opacity: 0.95;
+    color: #ffffff;
+}
+
+/* Chat Image Bubble Style */
+.chat-image-preview {
+    max-width: 250px;
+    max-height: 250px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: var(--transition);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: block;
+}
+
+.chat-image-preview:hover {
+    transform: scale(1.02);
+    border-color: var(--accent-cyan);
 }
 
 /* Chat Profile Section Styles */

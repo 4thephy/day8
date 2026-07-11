@@ -115,6 +115,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatMessages = document.getElementById('chat-messages');
     const chatInput = document.getElementById('chat-input');
     const btnSendChat = document.getElementById('btn-send-chat');
+    const btnUploadImage = document.getElementById('btn-upload-image');
+    const chatImageInput = document.getElementById('chat-image-input');
 
     // Profile Avatar Elements
     const profileAvatar = document.getElementById('profile-avatar');
@@ -224,6 +226,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 sendChatMessage();
             }
         });
+    }
+
+    // Chat Image Upload Events
+    if (btnUploadImage) {
+        btnUploadImage.addEventListener('click', () => chatImageInput && chatImageInput.click());
+    }
+    if (chatImageInput) {
+        chatImageInput.addEventListener('change', handleChatImageUpload);
     }
 
     // Profile Avatar Events
@@ -1416,12 +1426,21 @@ document.addEventListener('DOMContentLoaded', () => {
         // Construct avatar URL using the sender's user_id
         const avatarUrl = supabaseUrl ? `${supabaseUrl}/storage/v1/object/public/avatars/${msg.user_id}/avatar.png` : '';
 
+        // Check if message is a chat image URL
+        const isImage = msg.content && msg.content.startsWith('http') && msg.content.includes('/chat-images/');
+        
+        const bubbleHtml = isImage 
+            ? `<div class="message-bubble" style="padding: 0.4rem; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                   <img src="${escapeHtml(msg.content)}" class="chat-image-preview" alt="전송된 이미지" onclick="window.open(this.src, '_blank')">
+               </div>`
+            : `<div class="message-bubble">${escapeHtml(msg.content)}</div>`;
+
         if (isMe) {
             wrapper.innerHTML = `
                 <div class="message-content-area">
                     <div class="message-bubble-container">
                         <span class="message-time">${formattedTime}</span>
-                        <div class="message-bubble">${escapeHtml(msg.content)}</div>
+                        ${bubbleHtml}
                     </div>
                 </div>
                 <div class="message-avatar-container" title="${escapeHtml(displayName)}">
@@ -1438,7 +1457,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="message-content-area">
                     <span class="message-sender">${escapeHtml(displayName)}</span>
                     <div class="message-bubble-container">
-                        <div class="message-bubble">${escapeHtml(msg.content)}</div>
+                        ${bubbleHtml}
                         <span class="message-time">${formattedTime}</span>
                     </div>
                 </div>
@@ -1710,6 +1729,95 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             if (btnChangeAvatar) btnChangeAvatar.textContent = '사진 변경';
             if (avatarFileInput) avatarFileInput.value = ''; // Reset file input
+        }
+    }
+
+    async function handleChatImageUpload(event) {
+        if (!supabaseClient || !currentSession) {
+            alert('로그인이 필요합니다.');
+            return;
+        }
+
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // Validation: Image type check
+        if (!file.type.startsWith('image/')) {
+            alert('이미지 파일만 업로드할 수 있습니다.');
+            return;
+        }
+
+        let uploadFile = file;
+        const sizeLimit = 2 * 1024 * 1024; // 2MB
+
+        if (file.size > sizeLimit) {
+            alert('용량 초과로 크기를 줄여서 업로드합니다.');
+            try {
+                // Resize to max 1000x1000 and compress to 80% JPEG quality
+                uploadFile = await compressAndResizeImage(file, 1000, 1000, 0.80);
+            } catch (compressError) {
+                console.error('Image compression failed, using original:', compressError);
+                uploadFile = file;
+            }
+        }
+
+        // Show uploading feedback
+        if (btnUploadImage) {
+            btnUploadImage.disabled = true;
+            btnUploadImage.innerHTML = '<span style="font-size: 0.75rem; font-weight: bold;">...</span>';
+        }
+
+        try {
+            const userId = currentSession.user.id;
+            const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+            const filePath = `${userId}/${fileName}`;
+
+            // Upload the file to 'chat-images' bucket
+            const { data, error: uploadError } = await supabaseClient.storage
+                .from('chat-images')
+                .upload(filePath, uploadFile, {
+                    cacheControl: '3600',
+                    contentType: uploadFile.type || 'image/jpeg',
+                    upsert: false
+                });
+
+            if (uploadError) throw uploadError;
+
+            // Get public URL
+            const { data: { publicUrl } } = supabaseClient.storage
+                .from('chat-images')
+                .getPublicUrl(filePath);
+
+            // Post message with the public URL as content
+            const response = await apiFetch('/api/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ content: publicUrl })
+            });
+
+            if (response.ok) {
+                const resData = await response.json();
+                if (resData.success && resData.message) {
+                    renderChatMessage(resData.message);
+                    scrollToBottom();
+                }
+            } else {
+                const err = await response.json();
+                alert('이미지 메시지 전송에 실패했습니다: ' + (err.error || response.statusText));
+            }
+
+        } catch (error) {
+            console.error('Error uploading chat image:', error);
+            alert('이미지 업로드에 실패했습니다: ' + error.message);
+        } finally {
+            if (btnUploadImage) {
+                btnUploadImage.disabled = false;
+                btnUploadImage.innerHTML = '<i data-lucide="paperclip"></i>';
+                lucide.createIcons({ node: btnUploadImage });
+            }
+            if (chatImageInput) chatImageInput.value = ''; // Reset input
         }
     }
 
