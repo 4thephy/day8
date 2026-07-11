@@ -241,6 +241,17 @@
                         <h4 class="history-title" style="margin-bottom: 0.2rem; display: flex; align-items: center; gap: 0.5rem;"><i data-lucide="message-square"></i> 실시간 채팅</h4>
                         <p class="chat-subtitle" style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">MindFlow 사용자들과 나누는 따뜻한 소통의 공간입니다.</p>
                     </div>
+                    
+                    <!-- 프로필 설정 섹션 -->
+                    <div class="chat-profile-section">
+                        <div class="avatar-container" id="avatar-container" title="클릭하여 사진 변경">
+                            <img id="profile-avatar" src="" alt="프로필 사진" class="hidden" style="display: none;">
+                            <div id="profile-avatar-fallback"><i data-lucide="user"></i></div>
+                        </div>
+                        <button id="btn-change-avatar" class="text-btn">사진 변경</button>
+                        <input type="file" id="avatar-file-input" accept="image/*" class="hidden" style="display: none;">
+                    </div>
+                    
                     <div class="chat-messages" id="chat-messages">
                         <div class="chat-empty">
                             <i data-lucide="message-circle" style="width: 32px; height: 32px; color: var(--text-muted); opacity: 0.5; margin-bottom: 0.5rem;"></i>

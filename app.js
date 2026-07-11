@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let supabaseClient = null;
     let currentSession = null;
+    let supabaseUrl = '';
 
     // Helper for authenticated API requests
     async function apiFetch(url, options = {}) {
@@ -114,6 +115,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatMessages = document.getElementById('chat-messages');
     const chatInput = document.getElementById('chat-input');
     const btnSendChat = document.getElementById('btn-send-chat');
+
+    // Profile Avatar Elements
+    const profileAvatar = document.getElementById('profile-avatar');
+    const profileAvatarFallback = document.getElementById('profile-avatar-fallback');
+    const avatarContainer = document.getElementById('avatar-container');
+    const btnChangeAvatar = document.getElementById('btn-change-avatar');
+    const avatarFileInput = document.getElementById('avatar-file-input');
     
     // Weather Selector logic
     const weatherBtns = document.querySelectorAll('.weather-btn');
@@ -216,6 +224,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 sendChatMessage();
             }
         });
+    }
+
+    // Profile Avatar Events
+    if (avatarContainer) {
+        avatarContainer.addEventListener('click', () => avatarFileInput && avatarFileInput.click());
+    }
+    if (btnChangeAvatar) {
+        btnChangeAvatar.addEventListener('click', () => avatarFileInput && avatarFileInput.click());
+    }
+    if (avatarFileInput) {
+        avatarFileInput.addEventListener('change', handleAvatarUpload);
     }
 
     // ----------------------------------------------------
@@ -1394,20 +1413,44 @@ document.addEventListener('DOMContentLoaded', () => {
         // Use nickname if available, fallback to email prefix or email
         const displayName = msg.user_nickname || msg.user_email;
 
-        let senderHtml = '';
-        if (!isMe) {
-            senderHtml = `<span class="message-sender">${escapeHtml(displayName)}</span>`;
+        // Construct avatar URL using the sender's user_id
+        const avatarUrl = supabaseUrl ? `${supabaseUrl}/storage/v1/object/public/avatars/${msg.user_id}/avatar.png` : '';
+
+        if (isMe) {
+            wrapper.innerHTML = `
+                <div class="message-content-area">
+                    <div class="message-bubble-container">
+                        <span class="message-time">${formattedTime}</span>
+                        <div class="message-bubble">${escapeHtml(msg.content)}</div>
+                    </div>
+                </div>
+                <div class="message-avatar-container" title="${escapeHtml(displayName)}">
+                    <img src="${avatarUrl}" class="message-avatar" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" alt="">
+                    <div class="message-avatar-fallback" style="display: none;"><i data-lucide="user"></i></div>
+                </div>
+            `;
+        } else {
+            wrapper.innerHTML = `
+                <div class="message-avatar-container" title="${escapeHtml(displayName)}">
+                    <img src="${avatarUrl}" class="message-avatar" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" alt="">
+                    <div class="message-avatar-fallback" style="display: none;"><i data-lucide="user"></i></div>
+                </div>
+                <div class="message-content-area">
+                    <span class="message-sender">${escapeHtml(displayName)}</span>
+                    <div class="message-bubble-container">
+                        <div class="message-bubble">${escapeHtml(msg.content)}</div>
+                        <span class="message-time">${formattedTime}</span>
+                    </div>
+                </div>
+            `;
         }
 
-        wrapper.innerHTML = `
-            ${senderHtml}
-            <div class="message-bubble-container">
-                <div class="message-bubble">${escapeHtml(msg.content)}</div>
-                <span class="message-time">${formattedTime}</span>
-            </div>
-        `;
-
         chatMessages.appendChild(wrapper);
+        
+        // Render Lucide icons inside this wrapper
+        lucide.createIcons({
+            node: wrapper
+        });
     }
 
     function escapeHtml(text) {
@@ -1521,6 +1564,96 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
+    // ----------------------------------------------------
+    // USER PROFILE AVATAR SYSTEM
+    // ----------------------------------------------------
+    function renderUserAvatar(avatarUrl) {
+        if (!profileAvatar || !profileAvatarFallback) return;
+        
+        if (avatarUrl) {
+            profileAvatar.src = avatarUrl;
+            profileAvatar.classList.remove('hidden');
+            profileAvatar.style.display = 'block';
+            profileAvatarFallback.classList.add('hidden');
+            profileAvatarFallback.style.display = 'none';
+        } else {
+            profileAvatar.src = '';
+            profileAvatar.classList.add('hidden');
+            profileAvatar.style.display = 'none';
+            profileAvatarFallback.classList.remove('hidden');
+            profileAvatarFallback.style.display = 'flex';
+        }
+    }
+
+    async function handleAvatarUpload(event) {
+        if (!supabaseClient || !currentSession) {
+            alert('로그인이 필요합니다.');
+            return;
+        }
+
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // Validation: Image type and max size 2MB
+        if (!file.type.startsWith('image/')) {
+            alert('이미지 파일만 업로드할 수 있습니다.');
+            return;
+        }
+        if (file.size > 2 * 1024 * 1024) {
+            alert('파일 크기는 2MB 이하여야 합니다.');
+            return;
+        }
+
+        // Show loading state
+        if (btnChangeAvatar) btnChangeAvatar.textContent = '업로드 중...';
+
+        try {
+            const userId = currentSession.user.id;
+            const filePath = `${userId}/avatar.png`;
+
+            // Upload the file to 'avatars' bucket
+            const { data, error: uploadError } = await supabaseClient.storage
+                .from('avatars')
+                .upload(filePath, file, {
+                    cacheControl: '3600',
+                    upsert: true
+                });
+
+            if (uploadError) throw uploadError;
+
+            // Get public URL
+            const { data: { publicUrl } } = supabaseClient.storage
+                .from('avatars')
+                .getPublicUrl(filePath);
+
+            // Add cache-busting timestamp
+            const cacheBustedUrl = `${publicUrl}?t=${Date.now()}`;
+
+            // Update user metadata in Supabase Auth
+            const { data: updateData, error: authError } = await supabaseClient.auth.updateUser({
+                data: { avatar_url: cacheBustedUrl }
+            });
+
+            if (authError) throw authError;
+
+            // Successfully updated session
+            if (updateData && updateData.user) {
+                currentSession.user = updateData.user;
+            }
+
+            // Update UI
+            renderUserAvatar(cacheBustedUrl);
+            alert('프로필 사진이 성공적으로 변경되었습니다.');
+
+        } catch (error) {
+            console.error('Error uploading avatar:', error);
+            alert('프로필 사진 업로드에 실패했습니다: ' + error.message);
+        } finally {
+            if (btnChangeAvatar) btnChangeAvatar.textContent = '사진 변경';
+            if (avatarFileInput) avatarFileInput.value = ''; // Reset file input
+        }
+    }
+
     // 시스템 연동 자가 진단 도구 이벤트 바인딩
     const btnRunDiagnostics = document.getElementById('btn-run-diagnostics');
     const diagnosticsResult = document.getElementById('diagnostics-result');
@@ -1588,6 +1721,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const config = await res.json();
             
             if (config.supabaseUrl && config.supabaseAnonKey) {
+                supabaseUrl = config.supabaseUrl;
                 supabaseClient = supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
                 setupAuthListeners();
             } else {
@@ -1632,6 +1766,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 실시간 채팅 로드 및 실시간 연동 시작
                 loadChatMessages();
                 subscribeRealtimeChat();
+
+                // 프로필 사진 복원
+                const avatarUrl = session.user.user_metadata?.avatar_url;
+                renderUserAvatar(avatarUrl);
                 
                 // 이전 일기 복원
                 const savedLastContent = localStorage.getItem('mindflow_last_content');
@@ -1651,6 +1789,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 appScreen.classList.add('hidden');
                 userProfile.classList.add('hidden');
                 userEmail.textContent = '';
+
+                // 프로필 사진 초기화
+                renderUserAvatar(null);
                 
                 // 실시간 채팅 정리
                 if (chatChannel) {
