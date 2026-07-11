@@ -1585,6 +1585,50 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function compressAndResizeImage(file, maxWidth, maxHeight, quality) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > maxWidth) {
+                            height = Math.round((height * maxWidth) / width);
+                            width = maxWidth;
+                        }
+                    } else {
+                        if (height > maxHeight) {
+                            width = Math.round((width * maxHeight) / height);
+                            height = maxHeight;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            resolve(blob);
+                        } else {
+                            reject(new Error('Canvas to blob conversion failed'));
+                        }
+                    }, 'image/jpeg', quality);
+                };
+                img.onerror = (err) => reject(err);
+            };
+            reader.onerror = (err) => reject(err);
+        });
+    }
+
     async function handleAvatarUpload(event) {
         if (!supabaseClient || !currentSession) {
             alert('로그인이 필요합니다.');
@@ -1594,14 +1638,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = event.target.files[0];
         if (!file) return;
 
-        // Validation: Image type and max size 2MB
+        // Validation: Image type check
         if (!file.type.startsWith('image/')) {
             alert('이미지 파일만 업로드할 수 있습니다.');
             return;
         }
-        if (file.size > 2 * 1024 * 1024) {
-            alert('파일 크기는 2MB 이하여야 합니다.');
-            return;
+
+        let uploadFile = file;
+        const sizeLimit = 2 * 1024 * 1024; // 2MB
+
+        // If file size exceeds 2MB, compress and resize it!
+        if (file.size > sizeLimit) {
+            alert('용량 초과로 크기를 줄여서 업로드합니다.');
+            try {
+                // Resize to max 400x400 and compress to 85% JPEG quality
+                uploadFile = await compressAndResizeImage(file, 400, 400, 0.85);
+            } catch (compressError) {
+                console.error('Image compression failed, using original file:', compressError);
+                uploadFile = file;
+            }
         }
 
         // Show loading state
@@ -1611,11 +1666,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const userId = currentSession.user.id;
             const filePath = `${userId}/avatar.png`;
 
-            // Upload the file to 'avatars' bucket
+            // Upload the file (Blob or File) to 'avatars' bucket
             const { data, error: uploadError } = await supabaseClient.storage
                 .from('avatars')
-                .upload(filePath, file, {
+                .upload(filePath, uploadFile, {
                     cacheControl: '3600',
+                    contentType: uploadFile.type || 'image/jpeg',
                     upsert: true
                 });
 
@@ -1644,6 +1700,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // Update UI
             renderUserAvatar(cacheBustedUrl);
             alert('프로필 사진이 성공적으로 변경되었습니다.');
+
+            // Reload chat messages so that any messages rendered on screen get updated avatars!
+            loadChatMessages();
 
         } catch (error) {
             console.error('Error uploading avatar:', error);
